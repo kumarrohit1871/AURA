@@ -37,7 +37,7 @@ const App: React.FC = () => {
   const nextStartTimeRef = useRef(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
 
-  const handleNameSubmit = (user: string, assistant: string) => {
+  const handleSetupSubmit = (user: string, assistant: string) => {
     setUserName(user);
     setAssistantName(assistant);
   };
@@ -99,7 +99,7 @@ const App: React.FC = () => {
 
       inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
       outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
-
+      
       sessionPromiseRef.current = startAuraSession(userName, assistantName, {
         onopen: () => {
           console.log('Session opened.');
@@ -194,7 +194,7 @@ const App: React.FC = () => {
   });
 
   if (!userName || !assistantName) {
-    return <WelcomeScreen onNameSubmit={handleNameSubmit} />;
+    return <WelcomeScreen onSetupSubmit={handleSetupSubmit} />;
   }
 
   return (

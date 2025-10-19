@@ -62,7 +62,7 @@ export const useWakeWordListener = ({ wakeWord, isListening, onWakeWord }: UseWa
       const recognition: SpeechRecognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
-      recognition.lang = 'en-US';
+      // We don't set 'recognition.lang' to allow the browser to auto-detect.
 
       recognition.onresult = (event: SpeechRecognitionEvent) => {
         const transcript = Array.from(event.results)

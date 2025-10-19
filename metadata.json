@@ -1,0 +1,7 @@
+{
+  "name": "AURA - Personal Assistant",
+  "description": "A calm, emotionally intelligent, and holistic personal assistant designed to help you bring clarity, structure, and balance into your life. Chat with AURA to organize your mind, manage tasks, and maintain emotional balance.",
+  "requestFramePermissions": [
+    "microphone"
+  ]
+}

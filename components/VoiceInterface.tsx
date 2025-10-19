@@ -4,6 +4,7 @@ import { AuraLogo } from './AuraLogo';
 interface VoiceInterfaceProps {
   sessionState: 'idle' | 'active' | 'error';
   isAuraSpeaking: boolean;
+  isAuraTyping: boolean;
   userTranscript: string;
   auraTranscript: string;
   userName: string;
@@ -23,6 +24,7 @@ const getStatusText = (state: VoiceInterfaceProps['sessionState'], isSpeaking: b
 export const VoiceInterface: React.FC<VoiceInterfaceProps> = ({
   sessionState,
   isAuraSpeaking,
+  isAuraTyping,
   userTranscript,
   auraTranscript,
   userName,
@@ -44,7 +46,11 @@ export const VoiceInterface: React.FC<VoiceInterfaceProps> = ({
       <main className="flex flex-col items-center justify-center flex-1 w-full max-w-2xl">
         <div className="w-full h-24 mb-8 transition-opacity duration-300 ease-in-out">
             <p className="text-xl text-gray-400 h-1/2">{userTranscript}&nbsp;</p>
-            <p className="text-2xl text-gray-100 font-medium h-1/2">{auraTranscript}&nbsp;</p>
+            <p className="text-2xl text-gray-100 font-medium h-1/2">
+                {auraTranscript}
+                {isAuraTyping && <span className="inline-block w-0.5 h-6 bg-indigo-400 animate-pulse ml-1 align-[-4px]"></span>}
+                &nbsp;
+            </p>
         </div>
 
         <button 

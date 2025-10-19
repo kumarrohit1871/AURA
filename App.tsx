@@ -5,6 +5,7 @@ import { startAuraSession, createPcmBlob } from './services/geminiService';
 import { LiveServerMessage } from '@google/genai';
 import { decode, decodeAudioData } from './utils/audio';
 import { useWakeWordListener } from './hooks/useWakeWordListener';
+import { useSynchronizedTypewriter } from './hooks/useSynchronizedTypewriter';
 
 // Constants for audio processing
 const INPUT_SAMPLE_RATE = 16000;
@@ -18,13 +19,20 @@ const App: React.FC = () => {
   const [isListeningForWakeWord, setIsListeningForWakeWord] = useState(false);
   const [isAuraSpeaking, setIsAuraSpeaking] = useState(false);
   const [userTranscript, setUserTranscript] = useState('');
-  const [auraTranscript, setAuraTranscript] = useState('');
+
+  const {
+    displayedText: displayedAuraTranscript,
+    streamText: streamAuraTranscript,
+    reset: resetAuraTranscript,
+    isTyping: isAuraTyping,
+  } = useSynchronizedTypewriter();
   
   const sessionPromiseRef = useRef<ReturnType<typeof startAuraSession> | null>(null);
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
   const microphoneStreamRef = useRef<MediaStream | null>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const prevAuraTranscriptRef = useRef('');
 
   const nextStartTimeRef = useRef(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
@@ -81,7 +89,8 @@ const App: React.FC = () => {
     
     setIsListeningForWakeWord(false);
     setUserTranscript('');
-    setAuraTranscript('');
+    resetAuraTranscript();
+    prevAuraTranscriptRef.current = '';
     setSessionState('active');
 
     try {
@@ -113,19 +122,29 @@ const App: React.FC = () => {
           if (message.serverContent?.inputTranscription) {
             setUserTranscript(message.serverContent.inputTranscription.text);
           }
-          if (message.serverContent?.outputTranscription) {
-            setAuraTranscript(message.serverContent.outputTranscription.text);
-          }
+          
            if (message.serverContent?.turnComplete) {
             setUserTranscript('');
-            setAuraTranscript('');
+            prevAuraTranscriptRef.current = '';
           }
           
           const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
           if (base64Audio && outputAudioContextRef.current) {
              setIsAuraSpeaking(true);
              const audioBuffer = await decodeAudioData(decode(base64Audio), outputAudioContextRef.current, OUTPUT_SAMPLE_RATE, 1);
+             const duration = audioBuffer.duration;
              
+             const fullTranscript = message.serverContent.outputTranscription?.text ?? '';
+             const prevTranscript = prevAuraTranscriptRef.current;
+
+             if (fullTranscript.startsWith(prevTranscript)) {
+                const newText = fullTranscript.substring(prevTranscript.length);
+                if (newText) {
+                    streamAuraTranscript(newText, duration);
+                }
+                prevAuraTranscriptRef.current = fullTranscript;
+             }
+
              const currentTime = outputAudioContextRef.current.currentTime;
              nextStartTimeRef.current = Math.max(nextStartTimeRef.current, currentTime);
 
@@ -161,7 +180,7 @@ const App: React.FC = () => {
       setSessionState('error');
       cleanup();
     }
-  }, [userName, assistantName, sessionState, cleanup, handleStopSession]);
+  }, [userName, assistantName, sessionState, cleanup, handleStopSession, resetAuraTranscript, streamAuraTranscript]);
   
   const handleWakeWordDetected = useCallback(() => {
     console.log("Wake word detected, starting session.");
@@ -183,8 +202,9 @@ const App: React.FC = () => {
        <VoiceInterface
           sessionState={sessionState}
           isAuraSpeaking={isAuraSpeaking}
+          isAuraTyping={isAuraTyping}
           userTranscript={userTranscript}
-          auraTranscript={auraTranscript}
+          auraTranscript={displayedAuraTranscript}
           onToggleSession={() => (sessionState === 'active' ? handleStopSession() : handleStartSession())}
           userName={userName}
           assistantName={assistantName}

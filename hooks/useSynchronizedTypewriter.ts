@@ -6,7 +6,8 @@ export const useSynchronizedTypewriter = () => {
   
   const queueRef = useRef<{ text: string; duration: number }[]>([]);
   const isProcessingRef = useRef(false);
-  const timeoutRef = useRef<NodeJS.Timeout | null>(null);
+  // FIX: Use ReturnType<typeof setTimeout> for the timeout ref to be environment-agnostic (works in browser and Node.js).
+  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const processQueue = useCallback(() => {
     if (isProcessingRef.current || queueRef.current.length === 0) {

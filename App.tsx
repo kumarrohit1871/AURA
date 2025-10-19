@@ -1,3 +1,4 @@
+
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { VoiceInterface } from './components/VoiceInterface';
@@ -19,6 +20,7 @@ const App: React.FC = () => {
   const [isListeningForWakeWord, setIsListeningForWakeWord] = useState(false);
   const [isAuraSpeaking, setIsAuraSpeaking] = useState(false);
   const [userTranscript, setUserTranscript] = useState('');
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   const {
     displayedText: displayedAuraTranscript,
@@ -36,6 +38,11 @@ const App: React.FC = () => {
 
   const nextStartTimeRef = useRef(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
+  const sessionStateRef = useRef(sessionState);
+
+  useEffect(() => {
+    sessionStateRef.current = sessionState;
+  }, [sessionState]);
 
   const handleSetupSubmit = (user: string, assistant: string) => {
     setUserName(user);
@@ -67,7 +74,6 @@ const App: React.FC = () => {
     sourcesRef.current.clear();
     nextStartTimeRef.current = 0;
 
-    setSessionState('idle');
     setIsAuraSpeaking(false);
   }, []);
 
@@ -82,11 +88,13 @@ const App: React.FC = () => {
         sessionPromiseRef.current = null;
     }
     cleanup();
+    setSessionState('idle');
   }, [cleanup]);
   
   const handleStartSession = useCallback(async () => {
     if (sessionState === 'active' || !userName || !assistantName) return;
     
+    setErrorMessage(null);
     setIsListeningForWakeWord(false);
     setUserTranscript('');
     resetAuraTranscript();
@@ -166,17 +174,25 @@ const App: React.FC = () => {
         },
         onerror: (e: ErrorEvent) => {
           console.error('Session error:', e);
+          setErrorMessage('Connection error. Please check your quota and try again.');
           setSessionState('error');
-          handleStopSession();
+          if (sessionPromiseRef.current) {
+            sessionPromiseRef.current.then(session => session.close()).catch(err => console.error("Error closing session on error:", err));
+            sessionPromiseRef.current = null;
+          }
+          cleanup();
         },
         onclose: (e: CloseEvent) => {
           console.log('Session closed.');
-          handleStopSession();
+          if (sessionStateRef.current !== 'error') {
+            handleStopSession();
+          }
         },
       });
 
     } catch (error) {
       console.error('Failed to start session:', error);
+      setErrorMessage('Failed to access microphone. Please check permissions.');
       setSessionState('error');
       cleanup();
     }
@@ -208,6 +224,7 @@ const App: React.FC = () => {
           onToggleSession={() => (sessionState === 'active' ? handleStopSession() : handleStartSession())}
           userName={userName}
           assistantName={assistantName}
+          errorMessage={errorMessage}
         />
     </div>
   );

@@ -56,6 +56,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSetupSubmit }) =
             Continue
           </button>
         </form>
+        <p className="text-gray-500 text-xs mt-8 text-center">by SRKR Technologies Ltd</p>
       </div>
     </div>
   );

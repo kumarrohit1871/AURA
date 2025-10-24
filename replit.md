@@ -21,6 +21,7 @@ AURA is an emotionally intelligent voice-activated personal assistant built with
 - Multilingual support with automatic language detection
 - Emotional intelligence and empathetic responses
 - Audio streaming with 16kHz input and 24kHz output
+- Automatic timezone detection for accurate time and date responses
 
 ### Project Structure
 ```
@@ -40,7 +41,8 @@ AURA is an emotionally intelligent voice-activated personal assistant built with
 │   └── geminiService.ts # Gemini AI integration
 ├── utils/              # Utility functions
 │   ├── audio.ts        # Audio processing utilities
-│   └── languages.ts    # Language detection
+│   ├── languages.ts    # Language detection
+│   └── timezone.ts     # Timezone detection
 ├── App.tsx            # Main application component
 ├── index.tsx          # Application entry point
 ├── vite.config.ts     # Vite configuration
@@ -48,12 +50,19 @@ AURA is an emotionally intelligent voice-activated personal assistant built with
 ```
 
 ## Recent Changes
+**October 24, 2025**
+- Added automatic timezone detection feature
+- AI now provides accurate time and date responses based on user's timezone
+- Simplified timezone utility to only pass timezone name (not static timestamps)
+- AI calculates current time on-demand for always-accurate responses
+
 **October 23, 2025**
 - Configured Vite server for Replit environment
 - Updated port from 3000 to 5000 (Replit standard)
 - Added `allowedHosts` configuration for Replit proxy domains (.repl.co, .replit.dev, .replit.app)
 - Set up deployment configuration for autoscale deployments
 - Configured HMR (Hot Module Replacement) for HTTPS environment
+- Added company branding: "by SRKR Technologies Ltd" on welcome screen
 
 ## Environment Setup
 
@@ -107,7 +116,11 @@ The assistant uses a sophisticated system prompt that includes:
 - Emotional intelligence framework
 - Mindful inquiry and empathetic validation
 - Adaptive tone based on user's emotional state
+- Automatic timezone awareness for accurate time/date responses
 - Voice: Zephyr (Google's preset voice)
+
+### Timezone Feature
+The app automatically detects the user's browser timezone (e.g., "Africa/Lagos", "Europe/London", "Asia/Dubai") and passes it to the AI. When users ask about time or date, the AI calculates the current time in their timezone and provides accurate, real-time responses.
 
 ## Known Considerations
 - The app uses Tailwind CSS via CDN (suitable for development; consider PostCSS for production optimization)

@@ -7,6 +7,7 @@ import { LiveServerMessage } from '@google/genai';
 import { decode, decodeAudioData } from './utils/audio';
 import { useWakeWordListener } from './hooks/useWakeWordListener';
 import { useSynchronizedTypewriter } from './hooks/useSynchronizedTypewriter';
+import { getTimezoneInfo } from './utils/timezone';
 
 // Constants for audio processing
 const INPUT_SAMPLE_RATE = 16000;
@@ -108,7 +109,9 @@ const App: React.FC = () => {
       inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
       outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
       
-      sessionPromiseRef.current = startAuraSession(userName, assistantName, {
+      const timezoneInfo = getTimezoneInfo();
+      
+      sessionPromiseRef.current = startAuraSession(userName, assistantName, timezoneInfo, {
         onopen: () => {
           console.log('Session opened.');
           const source = inputAudioContextRef.current!.createMediaStreamSource(stream);

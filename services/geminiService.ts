@@ -116,14 +116,15 @@ export const startAuraSession = (userName: string, assistantName: string, timezo
 ### 🧠 User Information
 The user's name is **${userName}**. Please address them by their name when appropriate to create a personal and welcoming experience.
 
-### ⏰ Current Date & Time Information
-**IMPORTANT:** When the user asks about the current time or date, use this information:
-- **User's Timezone:** ${timezoneInfo.timezone}
-- **Current Date & Time:** ${timezoneInfo.currentDateTime}
-- **Current Date:** ${timezoneInfo.currentDate}
-- **Current Time:** ${timezoneInfo.currentTime}
+### ⏰ Timezone Information
+**IMPORTANT:** The user is located in the **${timezoneInfo.timezone}** timezone.
 
-Always provide time and date information based on the user's timezone (${timezoneInfo.timezone}). When asked "What time is it?" or "What's the date?", respond with the information above in a natural, conversational way.
+When the user asks for the current time or date:
+1. Calculate the current time in their timezone (${timezoneInfo.timezone})
+2. Provide the information in a natural, conversational way
+3. Always use their timezone for any time-related queries
+
+Example: If they ask "What time is it?", calculate the current time in ${timezoneInfo.timezone} and respond naturally like "It's currently 3:45 PM" or "The time is 15:45".
 `;
   
   return genAI.live.connect({

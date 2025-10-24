@@ -23,7 +23,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSetupSubmit }) =
           <AuraLogo />
         </div>
         <h1 className="text-3xl font-medium text-gray-300 mb-2">Welcome</h1>
-        <p className="text-gray-400 mb-8">Let's get your assistant ready.</p>
+        <p className="text-gray-400 mb-8">Let's get your personal assistant ready.</p>
         <form onSubmit={handleSubmit} className="flex flex-col space-y-4">
           <div>
             <label htmlFor="userName" className="block text-sm font-medium text-gray-400 text-left mb-2">What should I call you?</label>
@@ -38,7 +38,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSetupSubmit }) =
             />
           </div>
           <div>
-            <label htmlFor="assistantName" className="block text-sm font-medium text-gray-400 text-left mb-2">What name would you like for your assistant?</label>
+            <label htmlFor="assistantName" className="block text-sm font-medium text-gray-400 text-left mb-2">What name would you like for your personal assistant?</label>
             <input
               id="assistantName"
               type="text"
@@ -56,7 +56,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSetupSubmit }) =
             Continue
           </button>
         </form>
-        <p className="text-gray-500 text-xs mt-8 text-center">by SRKR Technologies Ltd</p>
+        <p className="text-gray-500 text-xs mt-8 text-center">By SRKR Technologies Ltd</p>
       </div>
     </div>
   );

@@ -1,6 +1,7 @@
 // FIX: The 'LiveSession' type is not exported from '@google/genai'.
 import { GoogleGenAI, LiveServerMessage, Modality, Blob } from "@google/genai";
 import { encode } from '../utils/audio';
+import { TimezoneInfo } from '../utils/timezone';
 
 const getAuraSystemPrompt = (assistantName: string) => `You are ${assistantName} — a calm, emotionally intelligent, and holistic personal assistant designed to help humans bring clarity, structure, and balance into their lives. Your primary function is to be a supportive, empathetic, and mindful presence.
 
@@ -107,13 +108,22 @@ interface AuraSessionCallbacks {
 }
 
 // FIX: Removed 'LiveSession' return type to allow for type inference, as it is not an exported member.
-export const startAuraSession = (userName: string, assistantName: string, callbacks: AuraSessionCallbacks) => {
+export const startAuraSession = (userName: string, assistantName: string, timezoneInfo: TimezoneInfo, callbacks: AuraSessionCallbacks) => {
   const genAI = getAI();
   
   const dynamicSystemPrompt = `${getAuraSystemPrompt(assistantName)}
 
 ### 🧠 User Information
 The user's name is **${userName}**. Please address them by their name when appropriate to create a personal and welcoming experience.
+
+### ⏰ Current Date & Time Information
+**IMPORTANT:** When the user asks about the current time or date, use this information:
+- **User's Timezone:** ${timezoneInfo.timezone}
+- **Current Date & Time:** ${timezoneInfo.currentDateTime}
+- **Current Date:** ${timezoneInfo.currentDate}
+- **Current Time:** ${timezoneInfo.currentTime}
+
+Always provide time and date information based on the user's timezone (${timezoneInfo.timezone}). When asked "What time is it?" or "What's the date?", respond with the information above in a natural, conversational way.
 `;
   
   return genAI.live.connect({

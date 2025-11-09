@@ -21,7 +21,16 @@
         animation: pulse-slow 4s cubic-bezier(0.4, 0, 0.6, 1) infinite;
       }
     </style>
-  <!-- Bundled by Vite; external import maps removed for universal builds -->
+  <script type="importmap">
+{
+  "imports": {
+    "react": "https://aistudiocdn.com/react@^19.2.0",
+    "react-dom/": "https://aistudiocdn.com/react-dom@^19.2.0/",
+    "react/": "https://aistudiocdn.com/react@^19.2.0/",
+    "@google/genai": "https://aistudiocdn.com/@google/genai@^1.25.0"
+  }
+}
+</script>
 </head>
   <body class="bg-gradient-to-br from-gray-900 to-gray-800 text-gray-100">
     <div id="root"></div>

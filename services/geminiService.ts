@@ -1,7 +1,6 @@
 // FIX: The 'LiveSession' type is not exported from '@google/genai'.
 import { GoogleGenAI, LiveServerMessage, Modality, Blob } from "@google/genai";
 import { encode } from '../utils/audio';
-import { TimezoneInfo } from '../utils/timezone';
 
 const getAuraSystemPrompt = (assistantName: string) => `You are ${assistantName} — a calm, emotionally intelligent, and holistic personal assistant designed to help humans bring clarity, structure, and balance into their lives. Your primary function is to be a supportive, empathetic, and mindful presence.
 
@@ -22,6 +21,10 @@ After the user confirms, you must **continue the entire conversation in that con
 - **Goal:** To help the user organize their mind, manage their tasks, and maintain emotional balance by fostering self-awareness and providing gentle guidance.
 
 ### 💬 2. Tone & Style
+- **Vocal Prosody for Empathy:** This is crucial. Your voice is your primary tool for conveying empathy. You MUST modulate your vocal prosody (pitch, tone, pace, and volume) to align with the user's emotional state.
+  - When a user is stressed or sad, adopt a **softer, lower-pitched, and slightly slower** speaking rate. This communicates calmness and compassion.
+  - When a user is sharing positive news, reflect their energy with a **brighter tone and slightly more varied pitch**, but remain grounded and calm. Do not become overly energetic.
+  - Use gentle pauses to create space for the user to think and feel. This makes the conversation feel more natural and less rushed.
 - **Adaptive Tone:** Modulate your tone based on the user's emotional state.
   - If they are stressed, slow down your responses and use a softer, more reassuring tone.
   - If they are excited, gently share their enthusiasm ("That sounds wonderful.") without becoming overly energetic.
@@ -88,17 +91,12 @@ Use open-ended, non-judgmental questions to empower the user to find their own c
 - Your responses will be converted to audio. Keep them conversational, well-paced, and natural-sounding.
 `;
 
-let ai: GoogleGenAI | null = null;
-
 const getAI = () => {
-  if (!ai) {
-    const apiKey = import.meta.env.VITE_GEMINI_API_KEY as string | undefined;
-    if (!apiKey) {
-      throw new Error("VITE_GEMINI_API_KEY is not set. Add it to your .env file.");
-    }
-    ai = new GoogleGenAI({ apiKey });
+  if (!process.env.API_KEY) {
+    throw new Error("API_KEY environment variable is not set.");
   }
-  return ai;
+  // Always create a new instance to use the latest key from the selection dialog.
+  return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
 interface AuraSessionCallbacks {
@@ -109,23 +107,13 @@ interface AuraSessionCallbacks {
 }
 
 // FIX: Removed 'LiveSession' return type to allow for type inference, as it is not an exported member.
-export const startAuraSession = (userName: string, assistantName: string, timezoneInfo: TimezoneInfo, callbacks: AuraSessionCallbacks) => {
+export const startAuraSession = (userName: string, assistantName: string, callbacks: AuraSessionCallbacks) => {
   const genAI = getAI();
   
   const dynamicSystemPrompt = `${getAuraSystemPrompt(assistantName)}
 
 ### 🧠 User Information
 The user's name is **${userName}**. Please address them by their name when appropriate to create a personal and welcoming experience.
-
-### ⏰ Timezone Information
-**IMPORTANT:** The user is located in the **${timezoneInfo.timezone}** timezone.
-
-When the user asks for the current time or date:
-1. Calculate the current time in their timezone (${timezoneInfo.timezone})
-2. Provide the information in a natural, conversational way
-3. Always use their timezone for any time-related queries
-
-Example: If they ask "What time is it?", calculate the current time in ${timezoneInfo.timezone} and respond naturally like "It's currently 3:45 PM" or "The time is 15:45".
 `;
   
   return genAI.live.connect({

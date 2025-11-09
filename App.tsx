@@ -2,7 +2,7 @@
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { VoiceInterface } from './components/VoiceInterface';
-import { startAuraSession, createPcmBlob } from './services/geminiService';
+import { startAuraSession, createPcmBlob, generateSpeech } from './services/geminiService';
 import { LiveServerMessage } from '@google/genai';
 import { decode, decodeAudioData } from './utils/audio';
 import { useWakeWordListener } from './hooks/useWakeWordListener';
@@ -13,12 +13,93 @@ import { AuraLogo } from './components/AuraLogo';
 const INPUT_SAMPLE_RATE = 16000;
 const OUTPUT_SAMPLE_RATE = 24000;
 const BUFFER_SIZE = 4096;
+const MALE_VOICES = ['Puck', 'Charon'];
+const FEMALE_VOICES = ['Kore', 'Zephyr'];
+
+/**
+ * A simple peak-picking algorithm to find the dominant frequency in an audio buffer.
+ * Note: This is a basic heuristic and may pick harmonics instead of the fundamental
+ * frequency, but serves as a pragmatic solution without complex DSP libraries.
+ */
+const findDominantFreq = (dataArray: Uint8Array, sampleRate: number, fftSize: number): number => {
+    let maxVal = -Infinity;
+    let maxIndex = 0;
+    for (let i = 0; i < dataArray.length; i++) {
+        if (dataArray[i] > maxVal) {
+            maxVal = dataArray[i];
+            maxIndex = i;
+        }
+    }
+    return maxIndex * (sampleRate / fftSize);
+};
+
+// This function analyzes the user's voice pitch from a provided audio stream.
+const determineVoice = (preference: VoicePreference, stream: MediaStream): Promise<string> => {
+  return new Promise(async (resolve) => {
+    if (preference === 'male') {
+      resolve(MALE_VOICES[0]);
+      return;
+    }
+    if (preference === 'female') {
+      resolve(FEMALE_VOICES[1]);
+      return;
+    }
+
+    // Auto-detection logic
+    const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
+    
+    if (audioContext.state === 'suspended') {
+        await audioContext.resume();
+    }
+
+    const analyser = audioContext.createAnalyser();
+    analyser.fftSize = 1024;
+    const source = audioContext.createMediaStreamSource(stream);
+    source.connect(analyser);
+    const bufferLength = analyser.frequencyBinCount;
+    const dataArray = new Uint8Array(bufferLength);
+    
+    const samples: number[] = [];
+    const intervalId = setInterval(() => {
+      analyser.getByteFrequencyData(dataArray);
+      const freq = findDominantFreq(dataArray, INPUT_SAMPLE_RATE, analyser.fftSize);
+      
+      if (freq > 70 && freq < 300) samples.push(freq);
+
+      if (samples.length >= 10) {
+        clearInterval(intervalId);
+        source.disconnect();
+        audioContext.close();
+        const avgFreq = samples.reduce((a, b) => a + b, 0) / samples.length;
+        console.log('Average detected frequency:', avgFreq);
+        const isLowPitch = avgFreq < 170; 
+        const voice = isLowPitch ? FEMALE_VOICES[1] : MALE_VOICES[0];
+        console.log(`Pitch detected as ${isLowPitch ? 'low' : 'high'}. Selecting voice: ${voice}`);
+        resolve(voice);
+      }
+    }, 100);
+
+    setTimeout(() => {
+      if (samples.length < 10) {
+        clearInterval(intervalId);
+        source.disconnect();
+        audioContext.close();
+        console.warn('Pitch detection timed out, using default voice.');
+        resolve(FEMALE_VOICES[1]); // Default to Zephyr
+      }
+    }, 2500);
+  });
+};
+
+type VoicePreference = 'auto' | 'female' | 'male';
+type SessionState = 'idle' | 'greeting' | 'analyzing' | 'active' | 'error';
 
 const App: React.FC = () => {
   const [isKeySelected, setIsKeySelected] = useState(false);
   const [userName, setUserName] = useState<string | null>(null);
   const [assistantName, setAssistantName] = useState<string | null>(null);
-  const [sessionState, setSessionState] = useState<'idle' | 'active' | 'error'>('idle');
+  const [voicePreference, setVoicePreference] = useState<VoicePreference>('auto');
+  const [sessionState, setSessionState] = useState<SessionState>('idle');
   const [isListeningForWakeWord, setIsListeningForWakeWord] = useState(false);
   const [isAuraSpeaking, setIsAuraSpeaking] = useState(false);
   const [userTranscript, setUserTranscript] = useState('');
@@ -34,10 +115,12 @@ const App: React.FC = () => {
   const sessionPromiseRef = useRef<ReturnType<typeof startAuraSession> | null>(null);
   const inputAudioContextRef = useRef<AudioContext | null>(null);
   const outputAudioContextRef = useRef<AudioContext | null>(null);
+  const outputGainNodeRef = useRef<GainNode | null>(null);
   const microphoneStreamRef = useRef<MediaStream | null>(null);
   const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
   const prevAuraTranscriptRef = useRef('');
   const stopInitiatedRef = useRef(false);
+  const isGreetingPlayingRef = useRef(false);
 
   const nextStartTimeRef = useRef(0);
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
@@ -89,6 +172,12 @@ const App: React.FC = () => {
         scriptProcessorRef.current.disconnect();
         scriptProcessorRef.current = null;
     }
+
+    if (outputGainNodeRef.current) {
+        outputGainNodeRef.current.disconnect();
+        outputGainNodeRef.current = null;
+    }
+
     inputAudioContextRef.current?.close().catch(console.error);
     inputAudioContextRef.current = null;
     outputAudioContextRef.current?.close().catch(console.error);
@@ -97,14 +186,32 @@ const App: React.FC = () => {
     sourcesRef.current.forEach(source => source.stop());
     sourcesRef.current.clear();
     nextStartTimeRef.current = 0;
-
+    
+    isGreetingPlayingRef.current = false;
     setIsAuraSpeaking(false);
+  }, []);
+  
+  const initOutputAudio = useCallback(async () => {
+    if (!outputAudioContextRef.current || outputAudioContextRef.current.state === 'closed') {
+        outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
+    }
+    if (outputAudioContextRef.current.state === 'suspended') {
+        await outputAudioContextRef.current.resume();
+    }
+    if (!outputGainNodeRef.current) {
+        const gainNode = outputAudioContextRef.current.createGain();
+        gainNode.connect(outputAudioContextRef.current.destination);
+        outputGainNodeRef.current = gainNode;
+    }
+    return { context: outputAudioContextRef.current, gainNode: outputGainNodeRef.current };
   }, []);
   
   const playSystemSound = useCallback((type: 'start' | 'end') => {
     const context = outputAudioContextRef.current;
-    if (!context || context.state === 'closed') {
-      console.warn('Cannot play system sound, audio context is not available.');
+    const outputGainNode = outputGainNodeRef.current;
+
+    if (!context || context.state === 'closed' || !outputGainNode) {
+      console.warn('Cannot play system sound, audio context or main gain node is not available.');
       return;
     }
 
@@ -112,7 +219,7 @@ const App: React.FC = () => {
     const gainNode = context.createGain();
 
     oscillator.connect(gainNode);
-    gainNode.connect(context.destination);
+    gainNode.connect(outputGainNode);
 
     gainNode.gain.setValueAtTime(0, context.currentTime);
 
@@ -152,33 +259,36 @@ const App: React.FC = () => {
     }
   }, [cleanup]);
   
-  const handleStartSession = useCallback(async () => {
-    if (sessionState === 'active' || !userName || !assistantName) return;
-    
-    stopInitiatedRef.current = false; // Reset stop intention
-    setErrorMessage(null);
-    setIsListeningForWakeWord(false);
-    setUserTranscript('');
-    resetAuraTranscript();
-    prevAuraTranscriptRef.current = '';
-    setSessionState('active');
+  const handleStartSession = useCallback(async (voiceName: string, stream: MediaStream, fromGreeting = false) => {
+    if ((sessionStateRef.current !== 'idle' && sessionStateRef.current !== 'greeting') || !userName || !assistantName) return;
+
+    if (!fromGreeting) {
+        stopInitiatedRef.current = false;
+        setErrorMessage(null);
+        setIsListeningForWakeWord(false);
+        setUserTranscript('');
+        resetAuraTranscript();
+        prevAuraTranscriptRef.current = '';
+    }
 
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      microphoneStreamRef.current = stream;
+      setSessionState('active');
 
       inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
-      outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
-      
-      playSystemSound('start');
+      await initOutputAudio();
 
-      sessionPromiseRef.current = startAuraSession(userName, assistantName, {
+      if (!fromGreeting) {
+        playSystemSound('start');
+      }
+
+      sessionPromiseRef.current = startAuraSession(userName, assistantName, voiceName, {
         onopen: () => {
           console.log('Session opened.');
           const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
           const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(BUFFER_SIZE, 1, 1);
           
           scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
+            if (isGreetingPlayingRef.current) return;
             const inputData = audioProcessingEvent.inputBuffer.getChannelData(0);
             const pcmBlob = createPcmBlob(inputData);
             sessionPromiseRef.current?.then((session) => {
@@ -192,7 +302,20 @@ const App: React.FC = () => {
         },
         onmessage: async (message: LiveServerMessage) => {
           if (message.serverContent?.inputTranscription) {
-            setUserTranscript(message.serverContent.inputTranscription.text);
+            const currentTranscript = message.serverContent.inputTranscription.text;
+            setUserTranscript(currentTranscript);
+            const lowerTranscript = currentTranscript.toLowerCase();
+            let newPreference: VoicePreference | null = null;
+            if (lowerTranscript.includes("speak to a male")) {
+                newPreference = 'male';
+            } else if (lowerTranscript.includes("speak to a female")) {
+                newPreference = 'female';
+            }
+
+            if (newPreference && newPreference !== voicePreference) {
+                setVoicePreference(newPreference);
+                streamAuraTranscript(`Okay, I will use a ${newPreference} voice for our next conversation.`, 4);
+            }
           }
           
            if (message.serverContent?.turnComplete) {
@@ -201,7 +324,10 @@ const App: React.FC = () => {
           }
           
           const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
-          if (base64Audio && outputAudioContextRef.current) {
+          if (base64Audio && outputAudioContextRef.current && outputGainNodeRef.current) {
+             if (outputAudioContextRef.current.state === 'suspended') {
+                await outputAudioContextRef.current.resume();
+             }
              setIsAuraSpeaking(true);
              const audioBuffer = await decodeAudioData(decode(base64Audio), outputAudioContextRef.current, OUTPUT_SAMPLE_RATE, 1);
              const duration = audioBuffer.duration;
@@ -222,7 +348,7 @@ const App: React.FC = () => {
 
              const source = outputAudioContextRef.current.createBufferSource();
              source.buffer = audioBuffer;
-             source.connect(outputAudioContextRef.current.destination);
+             source.connect(outputGainNodeRef.current);
              
              source.addEventListener('ended', () => {
                 sourcesRef.current.delete(source);
@@ -238,10 +364,9 @@ const App: React.FC = () => {
         },
         onerror: (e: ErrorEvent) => {
           console.error('Session error:', e);
-          // Per guidelines, if a "not found" error occurs, it's likely an API key issue.
           if (e.message.includes('not found') || e.message.includes('API_KEY_INVALID')) {
               setErrorMessage('Your API key appears to be invalid. Please select a valid key to continue.');
-              setIsKeySelected(false); // Force re-selection
+              setIsKeySelected(false);
           } else {
               setErrorMessage('Connection error. Please check your quota or network and try again.');
           }
@@ -258,17 +383,15 @@ const App: React.FC = () => {
           if (sessionStateRef.current !== 'error') {
             if (stopInitiatedRef.current && outputAudioContextRef.current) {
               playSystemSound('end');
-              // Delay cleanup to allow sound to play
               setTimeout(() => {
                 cleanup();
                 setSessionState('idle');
-              }, 300); // Duration of end sound + buffer
+              }, 300);
             } else {
-              // Unexpected close, cleanup immediately
               cleanup();
               setSessionState('idle');
             }
-            stopInitiatedRef.current = false; // Reset for next session
+            stopInitiatedRef.current = false;
           }
         },
       });
@@ -279,12 +402,74 @@ const App: React.FC = () => {
       setSessionState('error');
       cleanup();
     }
-  }, [userName, assistantName, sessionState, cleanup, resetAuraTranscript, streamAuraTranscript, playSystemSound]);
+  }, [userName, assistantName, voicePreference, cleanup, resetAuraTranscript, streamAuraTranscript, playSystemSound, initOutputAudio]);
   
-  const handleWakeWordDetected = useCallback(() => {
-    console.log("Wake word detected, starting session.");
-    handleStartSession();
-  }, [handleStartSession]);
+  const startManualSession = useCallback(async () => {
+    // This is for the user clicking the orb
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    microphoneStreamRef.current = stream;
+    const voiceName = await determineVoice(voicePreference, stream);
+    handleStartSession(voiceName, stream, false);
+  }, [voicePreference, handleStartSession]);
+
+  const handleWakeWordDetected = useCallback(async () => {
+    if (sessionStateRef.current !== 'idle' || !userName) return;
+
+    console.log("Wake word detected, preparing session.");
+    setSessionState('greeting');
+    setIsListeningForWakeWord(false);
+    setErrorMessage(null);
+    resetAuraTranscript();
+    setUserTranscript('');
+
+    const getTimeBasedGreeting = () => {
+        const hour = new Date().getHours();
+        if (hour < 12) return 'good morning';
+        if (hour < 18) return 'good afternoon';
+        return 'good evening';
+    };
+    const greetingText = `Hi ${userName}, a very ${getTimeBasedGreeting()}. How can I assist you?`;
+
+    try {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+        microphoneStreamRef.current = stream;
+
+        // Determine voice first to ensure greeting uses the correct voice
+        const voiceName = await determineVoice(voicePreference, stream);
+        
+        // Then, generate the speech with that voice
+        const audioData = await generateSpeech(greetingText, voiceName);
+        
+        // Set a flag to prevent mic input from being sent during greeting
+        isGreetingPlayingRef.current = true;
+        
+        // Start the session in the background while the greeting prepares to play
+        handleStartSession(voiceName, stream, true);
+
+        // Play the greeting audio
+        const { context, gainNode } = await initOutputAudio();
+        
+        const audioBuffer = await decodeAudioData(decode(audioData), context, OUTPUT_SAMPLE_RATE, 1);
+        const source = context.createBufferSource();
+        source.buffer = audioBuffer;
+        source.connect(gainNode);
+        source.start();
+
+        // When greeting finishes, unset the flag and play the 'start' chime to indicate listening
+        source.onended = () => {
+            isGreetingPlayingRef.current = false;
+            if (sessionStateRef.current === 'active') {
+                playSystemSound('start');
+            }
+        };
+    } catch (error) {
+        console.error('Failed to play greeting:', error);
+        isGreetingPlayingRef.current = false; // Reset flag on error
+        setErrorMessage('Could not generate greeting. Click the orb to start.');
+        cleanup();
+        setSessionState('error');
+    }
+}, [userName, voicePreference, handleStartSession, resetAuraTranscript, initOutputAudio, cleanup, playSystemSound]);
 
   useWakeWordListener({
     wakeWord: assistantName ? assistantName.toLowerCase() : '',
@@ -330,8 +515,7 @@ const App: React.FC = () => {
           isAuraTyping={isAuraTyping}
           userTranscript={userTranscript}
           auraTranscript={displayedAuraTranscript}
-          onToggleSession={() => (sessionState === 'active' ? handleStopSession() : handleStartSession())}
-          userName={userName}
+          onToggleSession={() => (sessionState === 'active' ? handleStopSession() : startManualSession())}
           assistantName={assistantName}
           errorMessage={errorMessage}
         />

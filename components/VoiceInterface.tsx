@@ -3,12 +3,11 @@ import React from 'react';
 import { AuraLogo } from './AuraLogo';
 
 interface VoiceInterfaceProps {
-  sessionState: 'idle' | 'active' | 'error';
+  sessionState: 'idle' | 'greeting' | 'active' | 'error' | 'analyzing';
   isAuraSpeaking: boolean;
   isAuraTyping: boolean;
   userTranscript: string;
   auraTranscript: string;
-  userName: string;
   assistantName: string;
   errorMessage: string | null;
   onToggleSession: () => void;
@@ -16,6 +15,8 @@ interface VoiceInterfaceProps {
 
 const getStatusText = (state: VoiceInterfaceProps['sessionState'], isSpeaking: boolean, assistantName: string, errorMessage: string | null) => {
     if (state === 'error') return errorMessage || 'An error occurred. Click the orb to try again.';
+    if (state === 'greeting') return 'Please wait...';
+    if (state === 'analyzing') return 'Analyzing voice...';
     if (state === 'active') {
         if (isSpeaking) return `${assistantName} is speaking...`;
         return 'Listening...';
@@ -29,7 +30,6 @@ export const VoiceInterface: React.FC<VoiceInterfaceProps> = ({
   isAuraTyping,
   userTranscript,
   auraTranscript,
-  userName,
   assistantName,
   errorMessage,
   onToggleSession,
@@ -37,6 +37,10 @@ export const VoiceInterface: React.FC<VoiceInterfaceProps> = ({
 
   const orbState = sessionState === 'error'
     ? 'error'
+    : sessionState === 'greeting'
+    ? 'speaking'
+    : sessionState === 'analyzing'
+    ? 'listening'
     : sessionState === 'active' 
     ? (isAuraSpeaking ? 'speaking' : 'listening') 
     : 'idle';
@@ -69,7 +73,7 @@ export const VoiceInterface: React.FC<VoiceInterfaceProps> = ({
               ${orbState === 'idle' ? 'animate-pulse-slow' : ''}
               ${orbState === 'error' ? '!bg-red-800/80 animate-pulse' : ''}`}
             />
-            <div className="relative w-32 h-32 rounded-full flex items-center justify-center bg-gray-900">
+            <div className={`relative w-32 h-32 rounded-full flex items-center justify-center bg-gray-900 transition-transform duration-500 ${(orbState === 'idle' || orbState === 'listening') ? 'animate-breathe' : ''}`}>
                 <AuraLogo />
             </div>
         </button>

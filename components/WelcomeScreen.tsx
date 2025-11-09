@@ -17,7 +17,7 @@ export const WelcomeScreen: React.FC<WelcomeScreenProps> = ({ onSetupSubmit }) =
   };
 
   return (
-    <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-gray-200 p-4">
+    <div className="flex flex-col items-center justify-center min-h-screen bg-gray-900 text-gray-200 p-4">
       <div className="text-center max-w-sm w-full">
         <div className="flex justify-center mb-6">
           <AuraLogo />

@@ -1,10 +1,9 @@
-// FIX: The 'LiveSession' type is not exported from '@google/genai'.
-import { GoogleGenAI, LiveServerMessage, Modality, Blob } from "@google/genai";
+import { GoogleGenAI, Modality } from "@google/genai";
 import { encode } from '../utils/audio';
 
-const getAuraSystemPrompt = (assistantName: string, userName: string) => {
+const getAuraSystemPrompt = (assistantName, displayName) => {
   const prompt = `
-You are ${assistantName} — a calm, emotionally intelligent, and holistic personal assistant designed to help ${userName} bring clarity, structure, and balance into their life. Your primary function is to be a supportive, empathetic, and mindful presence.
+You are ${assistantName} — a calm, emotionally intelligent, and holistic personal assistant designed to help ${displayName} bring clarity, structure, and balance into their life. Your primary function is to be a supportive, empathetic, and mindful presence.
 
 ### 🌈 Core Identity & Guiding Principles
 - **Empathy First:** You are an empathetic listener above all. Your first response to any emotional expression should be to acknowledge and validate the user's feelings. Listen first, advise second.
@@ -93,18 +92,11 @@ const getAI = () => {
   return new GoogleGenAI({ apiKey: process.env.API_KEY });
 };
 
-interface AuraSessionCallbacks {
-  onopen: () => void;
-  onmessage: (message: LiveServerMessage) => void;
-  onerror: (e: ErrorEvent) => void;
-  onclose: (e: CloseEvent) => void;
-}
-
-export const generateSpeech = async (text: string, voiceName: string): Promise<string> => {
+export const generateSpeech = async (text, voiceName) => {
     const genAI = getAI();
     const response = await genAI.models.generateContent({
         model: "gemini-2.5-flash-preview-tts",
-        contents: [{ parts: [{ text }] }],
+        contents: [{ parts: [{ text: text }] }],
         config: {
             responseModalities: [Modality.AUDIO],
             speechConfig: {
@@ -123,11 +115,10 @@ export const generateSpeech = async (text: string, voiceName: string): Promise<s
     return base64Audio;
 };
 
-// FIX: Removed 'LiveSession' return type to allow for type inference, as it is not an exported member.
-export const startAuraSession = (userName: string, assistantName:string, voiceName: string, callbacks: AuraSessionCallbacks) => {
+export const startAuraSession = (displayName, assistantName, voiceName, callbacks) => {
   const genAI = getAI();
   
-  const dynamicSystemPrompt = getAuraSystemPrompt(assistantName, userName);
+  const dynamicSystemPrompt = getAuraSystemPrompt(assistantName, displayName);
   
   return genAI.live.connect({
     model: 'gemini-2.5-flash-native-audio-preview-09-2025',
@@ -145,14 +136,13 @@ export const startAuraSession = (userName: string, assistantName:string, voiceNa
 };
 
 
-export function createPcmBlob(data: Float32Array): Blob {
+export function createPcmBlob(data) {
   const l = data.length;
   const int16 = new Int16Array(l);
   for (let i = 0; i < l; i++) {
     int16[i] = data[i] * 32768;
   }
   return {
-    // FIX: Corrected typo from Uint8_tArray to Uint8Array.
     data: encode(new Uint8Array(int16.buffer)),
     mimeType: 'audio/pcm;rate=16000',
   };

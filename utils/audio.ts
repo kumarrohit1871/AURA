@@ -1,5 +1,5 @@
 // Base64 encoding/decoding functions
-export function encode(bytes: Uint8Array): string {
+export function encode(bytes) {
   let binary = '';
   const len = bytes.byteLength;
   for (let i = 0; i < len; i++) {
@@ -8,7 +8,7 @@ export function encode(bytes: Uint8Array): string {
   return btoa(binary);
 }
 
-export function decode(base64: string): Uint8Array {
+export function decode(base64) {
   const binaryString = atob(base64);
   const len = binaryString.length;
   const bytes = new Uint8Array(len);
@@ -20,11 +20,11 @@ export function decode(base64: string): Uint8Array {
 
 // Custom PCM audio data decoder for raw audio streams
 export async function decodeAudioData(
-  data: Uint8Array,
-  ctx: AudioContext,
-  sampleRate: number,
-  numChannels: number,
-): Promise<AudioBuffer> {
+  data,
+  ctx,
+  sampleRate,
+  numChannels,
+) {
   const dataInt16 = new Int16Array(data.buffer);
   const frameCount = dataInt16.length / numChannels;
   const buffer = ctx.createBuffer(numChannels, frameCount, sampleRate);

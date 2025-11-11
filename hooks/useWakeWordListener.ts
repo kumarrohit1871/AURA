@@ -1,54 +1,10 @@
 import { useEffect, useRef } from 'react';
 
-// FIX: Add type definitions for the Web Speech API to resolve TypeScript errors.
-// These types are not standard in all TypeScript DOM library versions.
-interface SpeechRecognitionErrorEvent extends Event {
-  error: string;
-}
-
-interface SpeechRecognitionAlternative {
-  transcript: string;
-  confidence: number;
-}
-
-interface SpeechRecognitionResult {
-  [index: number]: SpeechRecognitionAlternative;
-  isFinal: boolean;
-  length: number;
-}
-
-interface SpeechRecognitionResultList {
-  [index: number]: SpeechRecognitionResult;
-  length: number;
-}
-
-interface SpeechRecognitionEvent extends Event {
-  results: SpeechRecognitionResultList;
-}
-
-interface SpeechRecognition extends EventTarget {
-  continuous: boolean;
-  interimResults: boolean;
-  lang: string;
-  onresult: (event: SpeechRecognitionEvent) => void;
-  onerror: (event: SpeechRecognitionErrorEvent) => void;
-  onend: () => void;
-  start: () => void;
-  stop: () => void;
-}
-
-// FIX: Access SpeechRecognition from window as `any` to avoid property-does-not-exist error
-// and handle vendor prefixes.
+// Fix: Use type assertion for SpeechRecognition and webkitSpeechRecognition
 const SpeechRecognition = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
 
-interface UseWakeWordListenerParams {
-  wakeWord: string;
-  isListening: boolean;
-  onWakeWord: () => void;
-}
-
-export const useWakeWordListener = ({ wakeWord, isListening, onWakeWord }: UseWakeWordListenerParams) => {
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+export const useWakeWordListener = ({ wakeWord, isListening, onWakeWord }) => {
+  const recognitionRef = useRef(null);
   const wakeWordDetectedRef = useRef(false);
 
   useEffect(() => {
@@ -59,12 +15,12 @@ export const useWakeWordListener = ({ wakeWord, isListening, onWakeWord }: UseWa
     }
 
     if (!recognitionRef.current) {
-      const recognition: SpeechRecognition = new SpeechRecognition();
+      const recognition = new SpeechRecognition();
       recognition.continuous = true;
       recognition.interimResults = true;
       // We don't set 'recognition.lang' to allow the browser to auto-detect.
 
-      recognition.onresult = (event: SpeechRecognitionEvent) => {
+      recognition.onresult = (event) => {
         const transcript = Array.from(event.results)
           .map((result) => result[0])
           .map((result) => result.transcript)
@@ -78,7 +34,7 @@ export const useWakeWordListener = ({ wakeWord, isListening, onWakeWord }: UseWa
         }
       };
 
-      recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
+      recognition.onerror = (event) => {
         if (event.error !== 'no-speech' && event.error !== 'aborted') {
           console.error('Speech recognition error:', event.error);
         }

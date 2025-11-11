@@ -1,11 +1,6 @@
-
 import React from 'react';
 
-interface AuraLogoProps {
-  small?: boolean;
-}
-
-export const AuraLogo: React.FC<AuraLogoProps> = ({ small = false }) => {
+export const AuraLogo = ({ small = false }) => {
   const size = small ? 'w-5 h-5' : 'w-8 h-8';
   return (
     <svg 

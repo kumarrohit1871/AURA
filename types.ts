@@ -1,6 +1,1 @@
-
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'model';
-  content: string;
-}
+// This file is intentionally left blank as it previously contained TypeScript-specific type definitions.

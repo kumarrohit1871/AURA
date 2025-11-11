@@ -1,19 +1,7 @@
-
 import React from 'react';
 import { AuraLogo } from './AuraLogo';
 
-interface VoiceInterfaceProps {
-  sessionState: 'idle' | 'greeting' | 'active' | 'error' | 'analyzing';
-  isAuraSpeaking: boolean;
-  isAuraTyping: boolean;
-  userTranscript: string;
-  auraTranscript: string;
-  assistantName: string;
-  errorMessage: string | null;
-  onToggleSession: () => void;
-}
-
-const getStatusText = (state: VoiceInterfaceProps['sessionState'], isSpeaking: boolean, assistantName: string, errorMessage: string | null) => {
+const getStatusText = (state, isSpeaking, assistantName, errorMessage) => {
     if (state === 'error') return errorMessage || 'An error occurred. Click the orb to try again.';
     if (state === 'greeting') return 'Please wait...';
     if (state === 'analyzing') return 'Analyzing voice...';
@@ -24,7 +12,7 @@ const getStatusText = (state: VoiceInterfaceProps['sessionState'], isSpeaking: b
     return `Say "${assistantName}" to begin.`;
 }
 
-export const VoiceInterface: React.FC<VoiceInterfaceProps> = ({
+export const VoiceInterface = ({
   sessionState,
   isAuraSpeaking,
   isAuraTyping,

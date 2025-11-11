@@ -33,6 +33,13 @@
       .animate-breathe {
         animation: breathe 4s ease-in-out infinite;
       }
+      .hover-lift:hover {
+        transform: translateY(-3px);
+      }
+      /* Prevent background scroll when modal is open */
+      .overflow-hidden {
+        overflow: hidden;
+      }
     </style>
   <script type="importmap">
 {
@@ -44,9 +51,10 @@
   }
 }
 </script>
+<script src="https://unpkg.com/@babel/standalone/babel.min.js"></script>
 </head>
   <body class="bg-gradient-to-br from-gray-900 to-gray-800 text-gray-100">
     <div id="root"></div>
-    <script type="module" src="/index.tsx"></script>
+    <!-- The application script is now in index.tsx and is loaded automatically -->
   </body>
 </html>

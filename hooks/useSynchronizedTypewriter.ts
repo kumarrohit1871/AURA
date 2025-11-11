@@ -4,10 +4,9 @@ export const useSynchronizedTypewriter = () => {
   const [displayedText, setDisplayedText] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   
-  const queueRef = useRef<{ text: string; duration: number }[]>([]);
+  const queueRef = useRef([]);
   const isProcessingRef = useRef(false);
-  // FIX: Use ReturnType<typeof setTimeout> for the timeout ref to be environment-agnostic (works in browser and Node.js).
-  const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const timeoutRef = useRef(null);
 
   const processQueue = useCallback(() => {
     if (isProcessingRef.current || queueRef.current.length === 0) {
@@ -16,7 +15,7 @@ export const useSynchronizedTypewriter = () => {
 
     isProcessingRef.current = true;
     setIsTyping(true);
-    const { text, duration } = queueRef.current.shift()!;
+    const { text, duration } = queueRef.current.shift();
     const words = text.trim().split(/\s+/).filter(Boolean);
 
     if (words.length === 0 || duration <= 0) {
@@ -47,7 +46,7 @@ export const useSynchronizedTypewriter = () => {
   }, []);
 
   const streamText = useCallback(
-    (textChunk: string, durationInSeconds: number) => {
+    (textChunk, durationInSeconds) => {
       queueRef.current.push({ text: textChunk, duration: durationInSeconds });
       processQueue();
     },

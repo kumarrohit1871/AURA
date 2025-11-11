@@ -1,13 +1,15 @@
-
 import React, { useState, useRef, useCallback, useEffect } from 'react';
 import { WelcomeScreen } from './components/WelcomeScreen';
 import { VoiceInterface } from './components/VoiceInterface';
 import { startAuraSession, createPcmBlob, generateSpeech } from './services/geminiService';
-import { LiveServerMessage } from '@google/genai';
 import { decode, decodeAudioData } from './utils/audio';
 import { useWakeWordListener } from './hooks/useWakeWordListener';
 import { useSynchronizedTypewriter } from './hooks/useSynchronizedTypewriter';
+import { checkExistingUser, logout } from './services/auth';
+import { MainAppView } from './components/MainAppView';
+import { dbGetVoicePreference, dbSaveVoicePreference, dbAddConversation, dbGetConversationHistory } from './services/database';
 import { AuraLogo } from './components/AuraLogo';
+
 
 // Constants for audio processing
 const INPUT_SAMPLE_RATE = 16000;
@@ -21,7 +23,7 @@ const FEMALE_VOICES = ['Kore', 'Zephyr'];
  * Note: This is a basic heuristic and may pick harmonics instead of the fundamental
  * frequency, but serves as a pragmatic solution without complex DSP libraries.
  */
-const findDominantFreq = (dataArray: Uint8Array, sampleRate: number, fftSize: number): number => {
+const findDominantFreq = (dataArray, sampleRate, fftSize) => {
     let maxVal = -Infinity;
     let maxIndex = 0;
     for (let i = 0; i < dataArray.length; i++) {
@@ -34,7 +36,7 @@ const findDominantFreq = (dataArray: Uint8Array, sampleRate: number, fftSize: nu
 };
 
 // This function analyzes the user's voice pitch from a provided audio stream.
-const determineVoice = (preference: VoicePreference, stream: MediaStream): Promise<string> => {
+const determineVoice = (preference, stream) => {
   return new Promise(async (resolve) => {
     if (preference === 'male') {
       resolve(MALE_VOICES[0]);
@@ -46,6 +48,7 @@ const determineVoice = (preference: VoicePreference, stream: MediaStream): Promi
     }
 
     // Auto-detection logic
+    // Fix: Use type assertion for webkitAudioContext
     const audioContext = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
     
     if (audioContext.state === 'suspended') {
@@ -59,7 +62,7 @@ const determineVoice = (preference: VoicePreference, stream: MediaStream): Promi
     const bufferLength = analyser.frequencyBinCount;
     const dataArray = new Uint8Array(bufferLength);
     
-    const samples: number[] = [];
+    const samples = [];
     const intervalId = setInterval(() => {
       analyser.getByteFrequencyData(dataArray);
       const freq = findDominantFreq(dataArray, INPUT_SAMPLE_RATE, analyser.fftSize);
@@ -91,19 +94,39 @@ const determineVoice = (preference: VoicePreference, stream: MediaStream): Promi
   });
 };
 
-type VoicePreference = 'auto' | 'female' | 'male';
-type SessionState = 'idle' | 'greeting' | 'analyzing' | 'active' | 'error';
+const ApiKeyScreen = ({ onSelectApiKey }) => {
+  return (
+    <div className="flex items-center justify-center h-screen bg-gradient-to-br from-gray-900 to-gray-800">
+      <div className="bg-gray-900/80 border border-gray-800 rounded-2xl p-8 max-w-lg text-center shadow-2xl">
+        <div className="mx-auto mb-6 w-max">
+            <AuraLogo />
+        </div>
+        <h2 className="text-3xl font-bold text-gray-100 mb-4">API Key Required</h2>
+        <p className="text-gray-400 mb-8">
+          To use this application, please select a Gemini API key. Your project may be subject to billing.
+          <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-purple-400 hover:underline ml-1">Learn more</a>.
+        </p>
+        <button onClick={onSelectApiKey} className="w-full bg-gradient-to-r from-purple-600 to-blue-600 text-white py-3 rounded-full font-semibold hover:brightness-110 transition-all text-lg">
+          Select API Key
+        </button>
+      </div>
+    </div>
+  );
+};
 
-const App: React.FC = () => {
-  const [isKeySelected, setIsKeySelected] = useState(false);
-  const [userName, setUserName] = useState<string | null>(null);
-  const [assistantName, setAssistantName] = useState<string | null>(null);
-  const [voicePreference, setVoicePreference] = useState<VoicePreference>('auto');
-  const [sessionState, setSessionState] = useState<SessionState>('idle');
+const App = () => {
+  const [apiKeyReady, setApiKeyReady] = useState(false);
+  const [userName, setUserName] = useState(null);
+  const [displayName, setDisplayName] = useState(null);
+  const [assistantName, setAssistantName] = useState(null);
+  const [voicePreference, setVoicePreference] = useState('auto');
+  const [sessionState, setSessionState] = useState('idle');
   const [isListeningForWakeWord, setIsListeningForWakeWord] = useState(false);
   const [isAuraSpeaking, setIsAuraSpeaking] = useState(false);
   const [userTranscript, setUserTranscript] = useState('');
-  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [errorMessage, setErrorMessage] = useState(null);
+  const [history, setHistory] = useState([]);
+  const [isSidebarExpanded, setIsSidebarExpanded] = useState(true);
 
   const {
     displayedText: displayedAuraTranscript,
@@ -112,17 +135,20 @@ const App: React.FC = () => {
     isTyping: isAuraTyping,
   } = useSynchronizedTypewriter();
   
-  const sessionPromiseRef = useRef<ReturnType<typeof startAuraSession> | null>(null);
-  const inputAudioContextRef = useRef<AudioContext | null>(null);
-  const outputAudioContextRef = useRef<AudioContext | null>(null);
-  const outputGainNodeRef = useRef<GainNode | null>(null);
-  const microphoneStreamRef = useRef<MediaStream | null>(null);
-  const scriptProcessorRef = useRef<ScriptProcessorNode | null>(null);
+  const sessionPromiseRef = useRef(null);
+  const inputAudioContextRef = useRef(null);
+  const outputAudioContextRef = useRef(null);
+  const outputGainNodeRef = useRef(null);
+  const microphoneStreamRef = useRef(null);
+  const scriptProcessorRef = useRef(null);
   const prevAuraTranscriptRef = useRef('');
   const stopInitiatedRef = useRef(false);
   const isGreetingPlayingRef = useRef(false);
+  const finalUserTranscriptRef = useRef('');
+  const finalAuraTranscriptRef = useRef('');
 
   const nextStartTimeRef = useRef(0);
+  // Fix: Specify the type for the Set in the useRef hook to fix 'stop' does not exist error.
   const sourcesRef = useRef<Set<AudioBufferSourceNode>>(new Set());
   const sessionStateRef = useRef(sessionState);
 
@@ -130,29 +156,37 @@ const App: React.FC = () => {
     sessionStateRef.current = sessionState;
   }, [sessionState]);
   
+  // This useEffect will run once on mount to check for an API key.
   useEffect(() => {
-    const checkApiKey = async () => {
-      // The hosting environment may take a moment to inject aistudio
-      if ((window as any).aistudio && await (window as any).aistudio.hasSelectedApiKey()) {
-        setIsKeySelected(true);
-      }
-    };
-    checkApiKey();
-    const timer = setTimeout(checkApiKey, 500); // Check again after a delay
-    return () => clearTimeout(timer);
+    if ((window as any).aistudio) {
+        const checkApiKey = async () => {
+            if (await (window as any).aistudio.hasSelectedApiKey()) {
+                setApiKeyReady(true);
+            }
+        };
+        checkApiKey();
+    } else {
+        console.warn('AI Studio context not found. Assuming API key is set via environment.');
+        setApiKeyReady(true);
+    }
   }, []);
 
-  const handleSelectKey = async () => {
-    if ((window as any).aistudio) {
-        await (window as any).aistudio.openSelectKey();
-        // Assume success to avoid a race condition where hasSelectedApiKey() might not be updated yet.
-        setIsKeySelected(true);
+  // This useEffect will run once on mount to check for existing user data.
+  useEffect(() => {
+    const user = checkExistingUser();
+    if (user) {
+        setUserName(user.userName);
+        setDisplayName(user.displayName);
+        setAssistantName(user.assistantName);
+        setVoicePreference(dbGetVoicePreference());
+        setHistory(dbGetConversationHistory());
     }
-  };
+  }, []); // Empty dependency array ensures it runs only once.
 
 
-  const handleSetupSubmit = (user: string, assistant: string) => {
+  const handleSetupSubmit = (user, display, assistant) => {
     setUserName(user);
+    setDisplayName(display);
     setAssistantName(assistant);
   };
   
@@ -193,6 +227,7 @@ const App: React.FC = () => {
   
   const initOutputAudio = useCallback(async () => {
     if (!outputAudioContextRef.current || outputAudioContextRef.current.state === 'closed') {
+        // Fix: Use type assertion for webkitAudioContext
         outputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: OUTPUT_SAMPLE_RATE });
     }
     if (outputAudioContextRef.current.state === 'suspended') {
@@ -206,7 +241,7 @@ const App: React.FC = () => {
     return { context: outputAudioContextRef.current, gainNode: outputGainNodeRef.current };
   }, []);
   
-  const playSystemSound = useCallback((type: 'start' | 'end') => {
+  const playSystemSound = useCallback((type) => {
     const context = outputAudioContextRef.current;
     const outputGainNode = outputGainNodeRef.current;
 
@@ -259,8 +294,8 @@ const App: React.FC = () => {
     }
   }, [cleanup]);
   
-  const handleStartSession = useCallback(async (voiceName: string, stream: MediaStream, fromGreeting = false) => {
-    if ((sessionStateRef.current !== 'idle' && sessionStateRef.current !== 'greeting') || !userName || !assistantName) return;
+  const handleStartSession = useCallback(async (voiceName, stream, fromGreeting = false) => {
+    if ((sessionStateRef.current !== 'idle' && sessionStateRef.current !== 'greeting') || !displayName || !assistantName) return;
 
     if (!fromGreeting) {
         stopInitiatedRef.current = false;
@@ -269,11 +304,14 @@ const App: React.FC = () => {
         setUserTranscript('');
         resetAuraTranscript();
         prevAuraTranscriptRef.current = '';
+        finalUserTranscriptRef.current = '';
+        finalAuraTranscriptRef.current = '';
     }
 
     try {
       setSessionState('active');
 
+      // Fix: Use type assertion for webkitAudioContext
       inputAudioContextRef.current = new (window.AudioContext || (window as any).webkitAudioContext)({ sampleRate: INPUT_SAMPLE_RATE });
       await initOutputAudio();
 
@@ -281,11 +319,11 @@ const App: React.FC = () => {
         playSystemSound('start');
       }
 
-      sessionPromiseRef.current = startAuraSession(userName, assistantName, voiceName, {
+      sessionPromiseRef.current = startAuraSession(displayName, assistantName, voiceName, {
         onopen: () => {
           console.log('Session opened.');
-          const source = inputAudioContextRef.current!.createMediaStreamSource(stream);
-          const scriptProcessor = inputAudioContextRef.current!.createScriptProcessor(BUFFER_SIZE, 1, 1);
+          const source = inputAudioContextRef.current.createMediaStreamSource(stream);
+          const scriptProcessor = inputAudioContextRef.current.createScriptProcessor(BUFFER_SIZE, 1, 1);
           
           scriptProcessor.onaudioprocess = (audioProcessingEvent) => {
             if (isGreetingPlayingRef.current) return;
@@ -297,30 +335,37 @@ const App: React.FC = () => {
           };
 
           source.connect(scriptProcessor);
-          scriptProcessor.connect(inputAudioContextRef.current!.destination);
+          scriptProcessor.connect(inputAudioContextRef.current.destination);
           scriptProcessorRef.current = scriptProcessor;
         },
-        onmessage: async (message: LiveServerMessage) => {
+        onmessage: async (message) => {
           if (message.serverContent?.inputTranscription) {
             const currentTranscript = message.serverContent.inputTranscription.text;
             setUserTranscript(currentTranscript);
+            finalUserTranscriptRef.current = currentTranscript; // Store final transcript
+            
             const lowerTranscript = currentTranscript.toLowerCase();
-            let newPreference: VoicePreference | null = null;
-            if (lowerTranscript.includes("speak to a male")) {
+            let newPreference = null;
+            if (lowerTranscript.includes("speak with a male voice")) {
                 newPreference = 'male';
-            } else if (lowerTranscript.includes("speak to a female")) {
+            } else if (lowerTranscript.includes("speak with a female voice")) {
                 newPreference = 'female';
             }
 
             if (newPreference && newPreference !== voicePreference) {
-                setVoicePreference(newPreference);
+                handleVoicePreferenceChange(newPreference);
                 streamAuraTranscript(`Okay, I will use a ${newPreference} voice for our next conversation.`, 4);
             }
           }
           
            if (message.serverContent?.turnComplete) {
+            dbAddConversation(finalUserTranscriptRef.current, finalAuraTranscriptRef.current);
+            setHistory(dbGetConversationHistory());
+
             setUserTranscript('');
             prevAuraTranscriptRef.current = '';
+            finalUserTranscriptRef.current = '';
+            finalAuraTranscriptRef.current = '';
           }
           
           const base64Audio = message.serverContent?.modelTurn?.parts[0]?.inlineData?.data;
@@ -333,6 +378,7 @@ const App: React.FC = () => {
              const duration = audioBuffer.duration;
              
              const fullTranscript = message.serverContent.outputTranscription?.text ?? '';
+             finalAuraTranscriptRef.current = fullTranscript; // Store final transcript
              const prevTranscript = prevAuraTranscriptRef.current;
 
              if (fullTranscript.startsWith(prevTranscript)) {
@@ -362,11 +408,17 @@ const App: React.FC = () => {
              sourcesRef.current.add(source);
           }
         },
-        onerror: (e: ErrorEvent) => {
+        onerror: (e) => {
           console.error('Session error:', e);
-          if (e.message.includes('not found') || e.message.includes('API_KEY_INVALID')) {
-              setErrorMessage('Your API key appears to be invalid. Please select a valid key to continue.');
-              setIsKeySelected(false);
+          const errorMessage = (e.message || '').toLowerCase();
+          
+          if (errorMessage.includes('not found') || 
+              errorMessage.includes('api_key_invalid') ||
+              errorMessage.includes('network error') ||
+              errorMessage.includes('permission denied')) {
+              
+              setErrorMessage('API key validation failed. Please select a valid key.');
+              setApiKeyReady(false);
           } else {
               setErrorMessage('Connection error. Please check your quota or network and try again.');
           }
@@ -378,7 +430,7 @@ const App: React.FC = () => {
           }
           cleanup();
         },
-        onclose: (e: CloseEvent) => {
+        onclose: (e) => {
           console.log('Session closed.');
           if (sessionStateRef.current !== 'error') {
             if (stopInitiatedRef.current && outputAudioContextRef.current) {
@@ -402,7 +454,7 @@ const App: React.FC = () => {
       setSessionState('error');
       cleanup();
     }
-  }, [userName, assistantName, voicePreference, cleanup, resetAuraTranscript, streamAuraTranscript, playSystemSound, initOutputAudio]);
+  }, [displayName, assistantName, voicePreference, cleanup, resetAuraTranscript, streamAuraTranscript, playSystemSound, initOutputAudio]);
   
   const startManualSession = useCallback(async () => {
     // This is for the user clicking the orb
@@ -413,7 +465,7 @@ const App: React.FC = () => {
   }, [voicePreference, handleStartSession]);
 
   const handleWakeWordDetected = useCallback(async () => {
-    if (sessionStateRef.current !== 'idle' || !userName) return;
+    if (sessionStateRef.current !== 'idle' || !displayName) return;
 
     console.log("Wake word detected, preparing session.");
     setSessionState('greeting');
@@ -428,7 +480,7 @@ const App: React.FC = () => {
         if (hour < 18) return 'good afternoon';
         return 'good evening';
     };
-    const greetingText = `Hi ${userName}, a very ${getTimeBasedGreeting()}. How can I assist you?`;
+    const greetingText = `Hi ${displayName}, a very ${getTimeBasedGreeting()}. How can I assist you?`;
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -469,7 +521,7 @@ const App: React.FC = () => {
         cleanup();
         setSessionState('error');
     }
-}, [userName, voicePreference, handleStartSession, resetAuraTranscript, initOutputAudio, cleanup, playSystemSound]);
+}, [displayName, voicePreference, handleStartSession, resetAuraTranscript, initOutputAudio, cleanup, playSystemSound]);
 
   useWakeWordListener({
     wakeWord: assistantName ? assistantName.toLowerCase() : '',
@@ -477,49 +529,55 @@ const App: React.FC = () => {
     onWakeWord: handleWakeWordDetected,
   });
 
-  if (!isKeySelected) {
-    return (
-        <div className="flex flex-col items-center justify-center h-screen bg-gray-900 text-gray-200 p-4">
-            <div className="text-center max-w-md w-full bg-gray-800 p-8 rounded-lg shadow-2xl">
-                <div className="flex justify-center mb-6">
-                    <AuraLogo />
-                </div>
-                <h1 className="text-2xl font-medium text-gray-300 mb-2">API Key Required</h1>
-                <p className="text-gray-400 mb-6">
-                    To use this application, please select a Gemini API key. Your project may be subject to billing.
-                    {' '}
-                    <a href="https://ai.google.dev/gemini-api/docs/billing" target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">
-                        Learn more
-                    </a>.
-                </p>
-                <button
-                    onClick={handleSelectKey}
-                    className="w-full bg-indigo-600 text-white rounded-full py-3 font-semibold hover:bg-indigo-500 transition duration-200 ease-in-out focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-offset-gray-900 focus:ring-indigo-500"
-                >
-                    Select API Key
-                </button>
-            </div>
-        </div>
-    );
+  const handleLogout = () => {
+    handleStopSession();
+    setUserName(null);
+    setDisplayName(null);
+    setAssistantName(null);
+    logout();
+  };
+
+  const handleVoicePreferenceChange = (preference) => {
+    setVoicePreference(preference);
+    dbSaveVoicePreference(preference);
+  };
+  
+  const handleToggleSidebar = () => {
+    setIsSidebarExpanded(prev => !prev);
+  };
+  
+  const handleSelectApiKey = async () => {
+    await (window as any).aistudio.openSelectKey();
+    setApiKeyReady(true);
+  };
+
+  if (!apiKeyReady) {
+    return <ApiKeyScreen onSelectApiKey={handleSelectApiKey} />;
   }
 
-  if (!userName || !assistantName) {
+  if (!userName || !assistantName || !displayName) {
     return <WelcomeScreen onSetupSubmit={handleSetupSubmit} />;
   }
 
   return (
-    <div className="flex flex-col h-screen bg-gray-900 text-gray-200">
-       <VoiceInterface
-          sessionState={sessionState}
-          isAuraSpeaking={isAuraSpeaking}
-          isAuraTyping={isAuraTyping}
-          userTranscript={userTranscript}
-          auraTranscript={displayedAuraTranscript}
-          onToggleSession={() => (sessionState === 'active' ? handleStopSession() : startManualSession())}
-          assistantName={assistantName}
-          errorMessage={errorMessage}
-        />
-    </div>
+    <MainAppView
+      displayName={displayName}
+      userName={userName}
+      onLogout={handleLogout}
+      sessionState={sessionState}
+      isAuraSpeaking={isAuraSpeaking}
+      isAuraTyping={isAuraTyping}
+      userTranscript={userTranscript}
+      auraTranscript={displayedAuraTranscript}
+      onToggleSession={() => (sessionState === 'active' ? handleStopSession() : startManualSession())}
+      assistantName={assistantName}
+      errorMessage={errorMessage}
+      voicePreference={voicePreference}
+      onVoicePreferenceChange={handleVoicePreferenceChange}
+      history={history}
+      isSidebarExpanded={isSidebarExpanded}
+      onToggleSidebar={handleToggleSidebar}
+    />
   );
 };
 
